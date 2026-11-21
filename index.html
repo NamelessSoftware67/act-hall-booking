@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Актовый зал — бронирование</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#eef1f6;--surface:#fff;--ink:#1b2433;--muted:#5d6879;--line:#d6dbe5;--accent:#9b1c31;
+--rep:#2f6f8f;--con:#9b1c31;--meet:#7a5c1e;--less:#3c7a4b}
+@media (prefers-color-scheme:dark){:root{--bg:#141a26;--surface:#1c2333;--ink:#e8ecf4;--muted:#9aa5b8;--line:#2e374b}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 Onest,system-ui,sans-serif}
+header{padding:20px 16px 8px;max-width:1200px;margin:0 auto}
+h1{margin:0 0 4px;font-size:1.6rem}
+header p{margin:0;color:var(--muted)}
+.layout{display:grid;grid-template-columns:1fr 320px;gap:16px;max-width:1200px;margin:0 auto;padding:12px 16px 32px}
+@media (max-width:900px){.layout{grid-template-columns:1fr}}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px}
+.nav{display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap}
+.nav strong{flex:1;min-width:150px}
+button{font:inherit;cursor:pointer;border-radius:8px;border:1px solid var(--line);background:var(--surface);color:var(--ink);padding:7px 12px}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:500;width:100%;padding:10px}
+.legend{display:flex;gap:12px;flex-wrap:wrap;font-size:.85rem;color:var(--muted);margin-bottom:10px}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px}
+.scroll{overflow-x:auto}
+.cal{display:grid;grid-template-columns:44px repeat(7,minmax(92px,1fr));min-width:700px}
+.hd{padding:6px 4px;text-align:center;font-size:.85rem;border-bottom:1px solid var(--line);color:var(--muted)}
+.hd.today{color:var(--accent);font-weight:700}
+.times div{height:56px;font-size:.75rem;color:var(--muted);text-align:right;padding-right:6px;transform:translateY(-8px)}
+.col{position:relative;border-left:1px solid var(--line);cursor:pointer;
+background:repeating-linear-gradient(to bottom,transparent 0,transparent 55px,var(--line) 55px,var(--line) 56px)}
+.col.past{background-color:rgba(128,128,128,.08);cursor:not-allowed}
+.b{position:absolute;left:3px;right:3px;border-radius:6px;padding:3px 6px;color:#fff;font-size:.75rem;line-height:1.25;overflow:hidden;cursor:default}
+.b b{display:block;font-weight:700}
+label{display:block;font-size:.85rem;color:var(--muted);margin:10px 0 3px}
+input,select{width:100%;font:inherit;padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink)}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+#msg{margin-top:10px;font-size:.9rem;min-height:1.3em}
+#msg.err{color:#c0392b}#msg.ok{color:var(--less)}
+h2{margin:0 0 4px;font-size:1.1rem}
+</style>
+</head>
+<body>
+<header>
+  <h1>Актовый зал</h1>
+  <p>Посмотрите, когда зал свободен, и забронируйте время.</p>
+</header>
+<div class="layout">
+  <section class="panel">
+    <div class="nav">
+      <button id="prev" aria-label="Предыдущая неделя">←</button>
+      <button id="today">Сегодня</button>
+      <button id="next" aria-label="Следующая неделя">→</button>
+      <strong id="range"></strong>
+    </div>
+    <div class="legend" id="legend"></div>
+    <div class="scroll"><div class="cal" id="cal"></div></div>
+  </section>
+  <section class="panel">
+    <h2>Забронировать</h2>
+    <p style="margin:0;color:var(--muted);font-size:.9rem">Нажмите на свободное время в календаре или заполните форму.</p>
+    <div id="f">
+      <label for="date">Дата</label><input type="date" id="date">
+      <div class="row">
+        <div><label for="start">Начало</label><input type="time" id="start" step="900"></div>
+        <div><label for="end">Конец</label><input type="time" id="end" step="900"></div>
+      </div>
+      <label for="type">Что будет в зале</label><select id="type"></select>
+      <label for="title">Название</label><input id="title" maxlength="100" placeholder="Например, репетиция к 1 декабря">
+      <label for="name">Ваше имя</label><input id="name" maxlength="60" placeholder="Фамилия И. О.">
+      <label for="contact">Телефон или кабинет (не показывается на сайте)</label><input id="contact" maxlength="60">
+      <div style="margin-top:14px"><button class="primary" id="send">Забронировать</button></div>
+      <div id="msg" role="status"></div>
+    </div>
+  </section>
+</div>
+
+<script>
+// Вставьте сюда ссылку веб-приложения из Google Apps Script (заканчивается на /exec)
+const API_URL = "ВСТАВЬТЕ_ССЫЛКУ_ИЗ_APPS_SCRIPT";
+
+const START_H = 8, END_H = 21, PX = 56;
+const TYPES = {"Репетиция":"var(--rep)","Концерт":"var(--con)","Встреча":"var(--meet)","Урок":"var(--less)"};
+const DAYS = ["Пн","Вт","Ср","Чт","Пт","Сб","Вс"];
+const $ = id => document.getElementById(id);
+let weekStart = monday(new Date()), bookings = [];
+
+function pad(n){return String(n).padStart(2,"0")}
+function fmt(d){return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate())}
+function monday(d){const x=new Date(d.getFullYear(),d.getMonth(),d.getDate());x.setDate(x.getDate()-(x.getDay()+6)%7);return x}
+function addDays(d,n){const x=new Date(d);x.setDate(x.getDate()+n);return x}
+function toMin(t){const p=t.split(":");return +p[0]*60+ +p[1]}
+function toTime(m){return pad(Math.floor(m/60))+":"+pad(m%60)}
+function esc(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
+
+function msg(text, cls){const m=$("msg");m.textContent=text;m.className=cls||""}
+
+function render(){
+  const todayStr = fmt(new Date());
+  const end = addDays(weekStart,6);
+  $("range").textContent = weekStart.toLocaleDateString("ru-RU",{day:"numeric",month:"long"}) + " — " +
+    end.toLocaleDateString("ru-RU",{day:"numeric",month:"long",year:"numeric"});
+  let h = '<div class="hd"></div>';
+  for(let i=0;i<7;i++){
+    const d=addDays(weekStart,i);
+    h += `<div class="hd ${fmt(d)===todayStr?"today":""}">${DAYS[i]} ${d.getDate()}</div>`;
+  }
+  let times = "";
+  for(let t=START_H;t<END_H;t++) times += `<div>${t}:00</div>`;
+  h += `<div class="times">${times}</div>`;
+  for(let i=0;i<7;i++){
+    const ds = fmt(addDays(weekStart,i));
+    const past = ds < todayStr;
+    let blocks = "";
+    bookings.filter(b=>b.date===ds).forEach(b=>{
+      const s=toMin(b.start), e=toMin(b.end);
+      const top=(s-START_H*60)/60*PX, ht=Math.max((e-s)/60*PX-2,18);
+      blocks += `<div class="b" style="top:${top}px;height:${ht}px;background:${TYPES[b.type]||"#555"}" title="${esc(b.type)}: ${esc(b.title)} (${esc(b.name)})">
+        <b>${b.start}–${b.end} ${esc(b.type)}</b>${esc(b.title)}<br>${esc(b.name)}</div>`;
+    });
+    h += `<div class="col ${past?"past":""}" data-date="${ds}" style="height:${(END_H-START_H)*PX}px">${blocks}</div>`;
+  }
+  $("cal").innerHTML = h;
+  document.querySelectorAll(".col:not(.past)").forEach(c=>c.addEventListener("click",ev=>{
+    if(ev.target.closest(".b")) return;
+    const m = Math.floor((ev.offsetY/PX*60)/30)*30 + START_H*60;
+    $("date").value = c.dataset.date;
+    $("start").value = toTime(m);
+    $("end").value = toTime(Math.min(m+60,END_H*60));
+    $("title").focus();
+  }));
+}
+
+async function load(){
+  try{
+    const r = await fetch(API_URL);
+    const j = await r.json();
+    if(!j.ok) throw new Error(j.error);
+    bookings = j.bookings;
+  }catch(e){
+    msg("Не удалось загрузить календарь. Проверьте ссылку API_URL и интернет.","err");
+  }
+  render();
+}
+
+async function send(){
+  const d = {date:$("date").value,start:$("start").value,end:$("end").value,type:$("type").value,
+    title:$("title").value.trim(),name:$("name").value.trim(),contact:$("contact").value.trim()};
+  if(!d.date||!d.start||!d.end) return msg("Выберите дату и время.","err");
+  if(d.date < fmt(new Date())) return msg("Нельзя бронировать прошедшие даты.","err");
+  const s=toMin(d.start), e=toMin(d.end);
+  if(e<=s) return msg("Конец должен быть позже начала.","err");
+  if(s<START_H*60||e>END_H*60) return msg(`Зал доступен с ${START_H}:00 до ${END_H}:00.`,"err");
+  if(!d.title||!d.name) return msg("Укажите название и своё имя.","err");
+  if(bookings.some(b=>b.date===d.date && s<toMin(b.end) && e>toMin(b.start)))
+    return msg("Это время уже занято. Выберите другое.","err");
+  $("send").disabled = true; msg("Отправляем…");
+  try{
+    const r = await fetch(API_URL,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify(d)});
+    const j = await r.json();
+    if(!j.ok) throw new Error(j.error);
+    msg("Готово: зал забронирован.","ok");
+    $("title").value=""; 
+    weekStart = monday(new Date(d.date+"T00:00"));
+    await load();
+  }catch(e){ msg(e.message||"Не удалось отправить. Попробуйте ещё раз.","err"); }
+  $("send").disabled = false;
+}
+
+$("type").innerHTML = Object.keys(TYPES).map(t=>`<option>${t}</option>`).join("");
+$("legend").innerHTML = Object.entries(TYPES).map(([t,c])=>`<span><i style="background:${c}"></i>${t}</span>`).join("");
+$("prev").onclick=()=>{weekStart=addDays(weekStart,-7);render()};
+$("next").onclick=()=>{weekStart=addDays(weekStart,7);render()};
+$("today").onclick=()=>{weekStart=monday(new Date());render()};
+$("send").onclick=send;
+$("date").min = fmt(new Date());
+render(); load();
+</script>
+</body>
+</html>

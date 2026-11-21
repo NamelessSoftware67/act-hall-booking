@@ -35,6 +35,8 @@ background:repeating-linear-gradient(to bottom,transparent 0,transparent 55px,va
 .col.past{background-color:rgba(128,128,128,.08);cursor:not-allowed}
 .b{position:absolute;left:3px;right:3px;border-radius:6px;padding:3px 6px;color:#fff;font-size:.75rem;line-height:1.25;overflow:hidden;cursor:pointer}
 .b b{display:block;font-weight:700}
+.b.c{line-height:1.2;padding:2px 5px}
+.b.c b,.b.c span{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 label{display:block;font-size:.85rem;color:var(--muted);margin:10px 0 3px}
 input,select{width:100%;font:inherit;padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink)}
 .row{display:grid;grid-template-columns:1fr 1fr;gap:8px}
@@ -110,6 +112,21 @@ function esc(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",
 
 function msg(text, cls){const m=$("msg");m.textContent=text;m.className=cls||""}
 
+// Раскладывает пересекающиеся брони дня по колонкам, чтобы они стояли рядом, а не друг на друге
+function layoutDay(list){
+  const items = list.map(b=>({b,s:toMin(b.start),e:toMin(b.end),lane:0,n:1})).sort((x,y)=>x.s-y.s||x.e-y.e);
+  let cluster = [], clusterEnd = -1;
+  const flush = ()=>{ const n = cluster.reduce((m,i)=>Math.max(m,i.lane+1),1); cluster.forEach(i=>i.n=n); cluster=[]; };
+  items.forEach(it=>{
+    if(cluster.length && it.s >= clusterEnd) flush();
+    const used = cluster.filter(c=>c.e > it.s).map(c=>c.lane);
+    let lane = 0; while(used.includes(lane)) lane++;
+    it.lane = lane; cluster.push(it); clusterEnd = Math.max(clusterEnd, it.e);
+  });
+  flush();
+  return items;
+}
+
 function render(){
   const todayStr = fmt(new Date());
   const end = addDays(weekStart,6);
@@ -126,13 +143,13 @@ function render(){
   for(let i=0;i<7;i++){
     const ds = fmt(addDays(weekStart,i));
     const past = ds < todayStr;
-    let blocks = "";
-    bookings.filter(b=>b.date===ds).forEach(b=>{
+    const blocks = layoutDay(bookings.filter(b=>b.date===ds)).map(({b,lane,n})=>{
       const s=toMin(b.start), e=toMin(b.end);
       const top=(s-START_H*60)/60*PX, ht=Math.max((e-s)/60*PX-2,18);
-      blocks += `<div class="b" data-id="${esc(b.id)}" tabindex="0" style="top:${top}px;height:${ht}px;background:${TYPES[b.type]||"#555"}" title="${esc(b.type)}: ${esc(b.title)} (${esc(b.name)})">
-        <b>${b.start}–${b.end} ${esc(b.type)}</b>${esc(b.title)}<br>${esc(b.name)}</div>`;
-    });
+      const compact = ht < 56 || n > 1;
+      return `<div class="b${compact?" c":""}" data-id="${esc(b.id)}" tabindex="0" style="top:${top}px;height:${ht}px;left:calc(${lane}*100%/${n} + 2px);width:calc(100%/${n} - 4px);right:auto;background:${TYPES[b.type]||"#555"}" title="${esc(b.start)}–${esc(b.end)} ${esc(b.type)}: ${esc(b.title)} (${esc(b.name)})">
+        <b>${b.start}–${b.end} ${esc(b.type)}</b>${compact?`<span>${esc(b.title)}</span>`:`${esc(b.title)}<br>${esc(b.name)}`}</div>`;
+    }).join("");
     h += `<div class="col ${past?"past":""}" data-date="${ds}" style="height:${(END_H-START_H)*PX}px">${blocks}</div>`;
   }
   $("cal").innerHTML = h;

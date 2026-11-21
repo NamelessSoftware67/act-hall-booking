@@ -33,7 +33,7 @@ button.primary{background:var(--accent);border-color:var(--accent);color:#fff;fo
 .col{position:relative;border-left:1px solid var(--line);cursor:pointer;
 background:repeating-linear-gradient(to bottom,transparent 0,transparent 55px,var(--line) 55px,var(--line) 56px)}
 .col.past{background-color:rgba(128,128,128,.08);cursor:not-allowed}
-.b{position:absolute;left:3px;right:3px;border-radius:6px;padding:3px 6px;color:#fff;font-size:.75rem;line-height:1.25;overflow:hidden;cursor:default}
+.b{position:absolute;left:3px;right:3px;border-radius:6px;padding:3px 6px;color:#fff;font-size:.75rem;line-height:1.25;overflow:hidden;cursor:pointer}
 .b b{display:block;font-weight:700}
 label{display:block;font-size:.85rem;color:var(--muted);margin:10px 0 3px}
 input,select{width:100%;font:inherit;padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink)}
@@ -41,6 +41,9 @@ input,select{width:100%;font:inherit;padding:8px;border:1px solid var(--line);bo
 #msg{margin-top:10px;font-size:.9rem;min-height:1.3em}
 #msg.err{color:#c0392b}#msg.ok{color:var(--less)}
 h2{margin:0 0 4px;font-size:1.1rem}
+dialog{border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--ink);max-width:340px;width:90%}
+dialog::backdrop{background:rgba(0,0,0,.4)}
+.btns{display:flex;gap:8px;margin-top:14px}.btns button{flex:1}
 </style>
 </head>
 <body>
@@ -78,9 +81,18 @@ h2{margin:0 0 4px;font-size:1.1rem}
   </section>
 </div>
 
+<dialog id="dlg">
+  <h2>Бронь</h2>
+  <p id="dtext" style="margin:4px 0"></p>
+  <div id="cbox"><label for="ccode">Код отмены (его показали при бронировании)</label>
+  <input id="ccode" inputmode="numeric" maxlength="4" autocomplete="off"></div>
+  <div id="cmsg" class="err" style="margin-top:8px;font-size:.9rem;color:#c0392b"></div>
+  <div class="btns"><button id="dclose">Закрыть</button><button class="primary" id="dcancel">Отменить бронь</button></div>
+</dialog>
+
 <script>
 // Вставьте сюда ссылку веб-приложения из Google Apps Script (заканчивается на /exec)
-const API_URL = "https://script.google.com/macros/s/AKfycbxtM9dT_RbfMG7ELfGssDCgkhXP5Y3sx0JAl5MxOXIzKN1cjWzTYh5qr8xRXlESyzO4Fw/exec";
+const API_URL = "ВСТАВЬТЕ_ССЫЛКУ_ИЗ_APPS_SCRIPT";
 
 const START_H = 8, END_H = 21, PX = 56;
 const TYPES = {"Репетиция":"var(--rep)","Концерт":"var(--con)","Встреча":"var(--meet)","Урок":"var(--less)"};
@@ -118,12 +130,16 @@ function render(){
     bookings.filter(b=>b.date===ds).forEach(b=>{
       const s=toMin(b.start), e=toMin(b.end);
       const top=(s-START_H*60)/60*PX, ht=Math.max((e-s)/60*PX-2,18);
-      blocks += `<div class="b" style="top:${top}px;height:${ht}px;background:${TYPES[b.type]||"#555"}" title="${esc(b.type)}: ${esc(b.title)} (${esc(b.name)})">
+      blocks += `<div class="b" data-id="${esc(b.id)}" tabindex="0" style="top:${top}px;height:${ht}px;background:${TYPES[b.type]||"#555"}" title="${esc(b.type)}: ${esc(b.title)} (${esc(b.name)})">
         <b>${b.start}–${b.end} ${esc(b.type)}</b>${esc(b.title)}<br>${esc(b.name)}</div>`;
     });
     h += `<div class="col ${past?"past":""}" data-date="${ds}" style="height:${(END_H-START_H)*PX}px">${blocks}</div>`;
   }
   $("cal").innerHTML = h;
+  document.querySelectorAll(".b").forEach(el=>{
+    el.addEventListener("click",()=>openCancel(el.dataset.id));
+    el.addEventListener("keydown",ev=>{if(ev.key==="Enter")openCancel(el.dataset.id)});
+  });
   document.querySelectorAll(".col:not(.past)").forEach(c=>c.addEventListener("click",ev=>{
     if(ev.target.closest(".b")) return;
     const m = Math.floor((ev.offsetY/PX*60)/30)*30 + START_H*60;
@@ -162,13 +178,38 @@ async function send(){
     const r = await fetch(API_URL,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify(d)});
     const j = await r.json();
     if(!j.ok) throw new Error(j.error);
-    msg("Готово: зал забронирован.","ok");
+    msg("Готово: зал забронирован. Код для отмены брони: "+j.code+". Запишите его, он больше не покажется.","ok");
     $("title").value=""; 
     weekStart = monday(new Date(d.date+"T00:00"));
     await load();
   }catch(e){ msg(e.message||"Не удалось отправить. Попробуйте ещё раз.","err"); }
   $("send").disabled = false;
 }
+
+let cancelId = null;
+function openCancel(id){
+  const b = bookings.find(x=>x.id===id); if(!b) return;
+  cancelId = id;
+  $("dtext").textContent = `${b.date}, ${b.start}–${b.end}: ${b.type} «${b.title}» (${b.name})`;
+  $("ccode").value = ""; $("cmsg").textContent = "";
+  $("cbox").hidden = $("dcancel").hidden = !!b.sched;
+  if(b.sched) $("cmsg").textContent = "Это занятие из расписания колледжа. Его меняет ответственный за расписание.";
+  $("dlg").showModal();
+}
+async function doCancel(){
+  const code = $("ccode").value.trim();
+  if(!code) return $("cmsg").textContent = "Введите код отмены.";
+  $("dcancel").disabled = true; $("cmsg").textContent = "Отменяем…";
+  try{
+    const r = await fetch(API_URL,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify({action:"cancel",id:cancelId,code})});
+    const j = await r.json();
+    if(!j.ok) throw new Error(j.error);
+    $("dlg").close(); msg("Бронь отменена.","ok"); await load();
+  }catch(e){ $("cmsg").textContent = e.message || "Не удалось отменить. Попробуйте ещё раз."; }
+  $("dcancel").disabled = false;
+}
+$("dclose").onclick=()=>$("dlg").close();
+$("dcancel").onclick=doCancel;
 
 $("type").innerHTML = Object.keys(TYPES).map(t=>`<option>${t}</option>`).join("");
 $("legend").innerHTML = Object.entries(TYPES).map(([t,c])=>`<span><i style="background:${c}"></i>${t}</span>`).join("");
